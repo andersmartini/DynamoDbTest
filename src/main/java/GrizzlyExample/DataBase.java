@@ -1,6 +1,8 @@
 package GrizzlyExample;
 
 
+import com.amazonaws.regions.RegionUtils;
+import com.amazonaws.regions.ServiceAbbreviations;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.Item;
@@ -16,9 +18,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import javax.ws.rs.client.Client;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+
 import java.util.Arrays;
 import java.util.Iterator;
 
@@ -27,6 +31,10 @@ import java.util.Iterator;
  * Created by martini on 2016-03-11.
  */
  final class DataBase {
+    static com.amazonaws.regions.Region currentRegion;
+
+
+
    private static AmazonDynamoDBClient client = new AmazonDynamoDBClient()
     .withEndpoint("http://localhost:8000");
     private static DynamoDB dynamoDB = new DynamoDB(client);
@@ -38,7 +46,65 @@ import java.util.Iterator;
         return movieTable;
     }
 
-     static void connect(){
+
+
+    public static String readUrl(String urlString) throws IOException {
+        URL url = new URL(urlString);
+        BufferedReader reader = null;
+
+        try {
+            HttpURLConnection huc = (HttpURLConnection) url.openConnection();
+            HttpURLConnection.setFollowRedirects(false);
+            huc.setConnectTimeout(100);
+            huc.setRequestMethod("GET");
+            huc.setRequestProperty("User-Agent", "anders");
+            huc.connect();
+            InputStream input = huc.getInputStream();
+
+            reader = new BufferedReader(new InputStreamReader(input, "UTF-8"));
+            StringBuilder builder = new StringBuilder();
+            for (String line; (line = reader.readLine()) != null; ) {
+                builder.append(line).append("\n");
+            }
+            return builder.toString();
+        } finally {
+            if (reader != null)
+                try {
+                    reader.close();
+                } catch (IOException ignore) {
+
+                }
+        }
+
+    }
+
+
+
+     static com.amazonaws.regions.Region getCurrentRegion() {
+        if (currentRegion == null) {
+                try {
+                        String zone = readUrl("us-west1a");
+                    //zone will be like eu-west1a and then substring -> eu-west, to upper-> EU-WEST and
+                    //then replaced -> EU_WEST which corresponds to the enum value
+                    currentRegion = RegionUtils.getRegion(
+                        zone.substring(0, zone.length() - 2).toUpperCase().replace("-", "_")
+                            );
+                    return currentRegion;
+                } catch (IOException e) {
+                    throw new RuntimeException("Server is an ec2 instance but could not get current zone!", e);
+                }
+
+        }
+        return currentRegion;
+    }
+
+    static void Connect(){
+        getCurrentRegion().getServiceEndpoint(ServiceAbbreviations.Dynamodb);
+    }
+
+
+
+     static void CreateTable(){
 
         try {
             System.out.println("Attempting to create table; please wait...");
@@ -91,4 +157,12 @@ import java.util.Iterator;
         }
         parser.close();
     }
+    static void drop() throws InterruptedException {
+        Table table = getMovieTable();
+        table.delete();
+        table.waitForDelete();
+        System.out.println("Dropped table");
+    }
+
+
 }
